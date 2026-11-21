@@ -1,6 +1,6 @@
 # EnergyWise
 
-ESP32-malli RJ12 HAN -mittariluentaan ja neljän GPIO-lähdön hintaohjaukseen. Selain näyttää osto- ja myyntitehon, ostoenergian, voimassa olevat hinnat ja lähtöjen tilat.
+ESP32-malli RJ12 HAN -mittariluentaan ja neljän GPIO-lähdön hintaohjaukseen. Selain näyttää osto- ja myyntitehon, ostoenergian, voimassa olevat hinnat ja lähtöjen tilat. Tehokuvaaja näyttää viimeiset noin 10 minuuttia 10 sekunnin välein. Mittauskatkot näkyvät aukkoina ja historia alkaa uudestaan laitteen käynnistyessä.
 
 ## Käännös ja käynnistys
 
@@ -32,4 +32,4 @@ Lataa hinnat käyttöliittymään JSON-tiedostona. Kukin rivi sisältää jakson
 ]
 ```
 
-Jokaiselle lähdölle voi valita tuntihinnan, varttihinnan tai pois-tilan ja oman hintarajan. Lähtö on päällä, kun valitun voimassa olevan jakson hinta on enintään raja. Ilman synkronoitua kelloa tai voimassa olevaa hintajaksoa lähtö pysyy pois päältä. Tunti- ja varttihinnat syötetään erillisinä jaksoina. Uusi hinnasto korvaa edellisen ja voi sisältää enintään 200 jaksoa. Laite tahdistaa kellon NTP:llä. Lähtöasetukset säilyvät käynnistyksen yli, hinnasto ladataan uudelleen.
+Jokaiselle lähdölle voi valita tuntihinnan, varttihinnan tai pois-tilan ja oman hintarajan. Lähtö on päällä, kun valitun voimassa olevan jakson hinta on enintään raja. Ilman synkronoitua kelloa tai voimassa olevaa hintajaksoa lähtö pysyy pois päältä. Tunti- ja varttihinnat syötetään erillisinä jaksoina. Uusi hinnasto korvaa edellisen ja voi sisältää enintään 200 jaksoa. Laite tahdistaa kellon NTP:llä. Lähtöasetukset ja hinnasto säilyvät käynnistyksen yli. Tyhjä hinnasto (`[]`) poistaa tallennetut hinnat ja sammuttaa lähdöt.

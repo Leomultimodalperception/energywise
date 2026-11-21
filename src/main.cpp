@@ -17,6 +17,8 @@ constexpr int pins[] = {25, 26, 27, 32};
 constexpr size_t maxPrices = 200;
 constexpr size_t maxTelegram = 4096;
 constexpr uint32_t meterTimeoutMs = 30000;
+constexpr size_t historySize = 60;
+constexpr uint32_t sampleIntervalMs = 10000;
 HardwareSerial han(2);
 WebServer web(80);
 Preferences preferences;
@@ -31,6 +33,20 @@ uint32_t meterAt = 0;
 bool meterSeen = false;
 String telegram;
 bool collecting = false;
+bool atLineStart = true;
+struct PowerSample { double importKw; double exportKw; };
+std::array<PowerSample, historySize> history;
+size_t historyCount = 0, nextSample = 0;
+uint32_t sampledAt = 0;
+
+void samplePower(uint32_t now) {
+  if (now - sampledAt < sampleIntervalMs) return;
+  sampledAt = now;
+  bool fresh = meterSeen && now - meterAt < meterTimeoutMs;
+  history[nextSample] = {fresh ? importKw : NAN, fresh ? exportKw : NAN};
+  nextSample = (nextSample + 1) % historySize;
+  if (historyCount < historySize) ++historyCount;
+}
 
 uint16_t crc16(const String& data, size_t length) {
   uint16_t crc = 0;
@@ -55,10 +71,11 @@ double meterValue(const char* field, const char* unit) {
 void readHan() {
   while (han.available()) {
     char byte = han.read();
-    if (byte == '/' && !collecting) {
+    if (byte == '/' && atLineStart) {
       telegram = "";
       collecting = true;
     }
+    atLineStart = byte == '\n';
     if (!collecting) continue;
     telegram += byte;
     if (telegram.length() >= maxTelegram) {
@@ -102,6 +119,23 @@ void control() {
     outputs[i] = p && p->cents <= rules[i].limit;
     digitalWrite(pins[i], outputs[i] ? HIGH : LOW);
   }
+}
+
+void powerHistory() {
+  JsonDocument doc;
+  auto samples = doc.to<JsonArray>();
+  size_t oldest = (nextSample + historySize - historyCount) % historySize;
+  for (size_t i = 0; i < historyCount; ++i) {
+    const auto& sample = history[(oldest + i) % historySize];
+    auto values = samples.add<JsonArray>();
+    if (std::isfinite(sample.importKw)) values.add(sample.importKw);
+    else values.add(nullptr);
+    if (std::isfinite(sample.exportKw)) values.add(sample.exportKw);
+    else values.add(nullptr);
+  }
+  String response;
+  serializeJson(doc, response);
+  web.send(200, "application/json", response);
 }
 
 void status() {
@@ -197,6 +231,14 @@ void loadPrices() {
     }
     next[count++] = {timestamp, duration, cents.as<double>()};
   }
+  // Store the complete schedule in one NVS entry before replacing the live data.
+  const size_t bytes = count * sizeof(Price);
+  bool saved = bytes ? preferences.putBytes("prices-v1", next.data(), bytes) == bytes
+                     : !preferences.isKey("prices-v1") || preferences.remove("prices-v1");
+  if (!saved) {
+    web.send(500, "text/plain", "Hinnaston tallennus epaonnistui");
+    return;
+  }
   prices = next;
   priceCount = count;
   control();
@@ -216,6 +258,11 @@ void setup() {
   if (preferences.getBytesLength("rules") == sizeof(rules))
     preferences.getBytes("rules", rules, sizeof(rules));
 
+  const size_t bytes = preferences.getBytesLength("prices-v1");
+  if (bytes && bytes <= sizeof(prices) && bytes % sizeof(Price) == 0 &&
+      preferences.getBytes("prices-v1", prices.data(), bytes) == bytes)
+    priceCount = bytes / sizeof(Price);
+
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
 #ifdef ENERGYWISE_WIFI_SSID
@@ -228,6 +275,7 @@ void setup() {
   web.collectHeaders(headers, 1);
   web.on("/", HTTP_GET, [] { web.send_P(200, "text/html; charset=utf-8", page); });
   web.on("/api/status", HTTP_GET, status);
+  web.on("/api/history", HTTP_GET, powerHistory);
   web.on("/api/rules", HTTP_POST, saveRules);
   web.on("/api/prices", HTTP_POST, loadPrices);
   web.begin();
@@ -235,6 +283,7 @@ void setup() {
 
 void loop() {
   readHan();
+  samplePower(millis());
   control();
   web.handleClient();
   static bool connected = false;
